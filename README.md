@@ -54,68 +54,67 @@ def preprocess(text):
 # Apply Preprocessing
 df['cleaned_review'] = df['Review Text'].apply(preprocess)
 
-# Word Frequency Analysis
-all_words = ' '.join(df['cleaned_review']).split()
-common_words = Counter(all_words).most_common(20)
-word_df = pd.DataFrame(common_words, columns=['Word', 'Frequency'])
+# Map Ratings to Sentiment Labels
+def map_sentiment(rating):
+    if rating in [4, 5]:
+        return 1  # Positive
+    elif rating in [1, 2]:
+        return 0  # Negative
+    else:
+        return 2  # Neutral
+df['Sentiment'] = df['Rating'].apply(map_sentiment)
+df['Sentiment'].value_counts()
 
-# Visualize Common Words
-plt.figure(figsize=(10, 5))
-sns.barplot(data=word_df, x='Word', y='Frequency', palette='viridis')
-plt.title("Top 20 Most Frequent Words in Reviews")
-plt.xticks(rotation=45)
-plt.tight_layout()
-plt.show()
+# Upsample All Classes to Match the Largest Class
+from sklearn.utils import resample
+df_0 = df[df['Sentiment'] == 0]
+df_1 = df[df['Sentiment'] == 1]
+df_2 = df[df['Sentiment'] == 2]
+max_samples = max(len(df_0), len(df_1), len(df_2))
+df_0_up = resample(df_0, replace=True, n_samples=max_samples, random_state=42)
+df_1_up = resample(df_1, replace=True, n_samples=max_samples, random_state=42)
+df_2_up = resample(df_2, replace=True, n_samples=max_samples, random_state=42)
+df_balanced = pd.concat([df_0_up, df_1_up, df_2_up]).sample(frac=1, random_state=42)
 
-# Topic Modeling using LDA
-vectorizer = CountVectorizer(max_df=0.9, min_df=10, stop_words='english')
-X_topics = vectorizer.fit_transform(df['cleaned_review'])
+# Vectorization with TF-IDF
+X = df_balanced['cleaned_review']
+y = df_balanced['Sentiment']
+tfidf = TfidfVectorizer(max_features=5000)
+X_tfidf = tfidf.fit_transform(X)
 
-lda = LatentDirichletAllocation(n_components=5, random_state=42)
-lda.fit(X_topics)
+# Split Data
+X_train, X_test, y_train, y_test = train_test_split(X_tfidf, y, test_size=0.2, random_state=42)
 
-for idx, topic in enumerate(lda.components_):
-    print(f"Topic {idx+1}:", [vectorizer.get_feature_names_out()[i] for i in topic.argsort()[-10:]])
-
-# Sentiment Labeling (Binary: Positive vs Negative)
-df = df[df['Rating'].isin([1, 2, 4, 5])]
-df['Sentiment'] = df['Rating'].apply(lambda x: 1 if x >= 4 else 0)
-
-# TF-IDF Vectorization
-tfidf = TfidfVectorizer(max_features=3000)
-X = tfidf.fit_transform(df['cleaned_review']).toarray()
-y = df['Sentiment']
-
-# Train-Test Split
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-
-# Logistic Regression Classifier
-clf_lr = LogisticRegression(max_iter=1000, solver='liblinear')
-clf_lr.fit(X_train, y_train)
-y_pred_lr = clf_lr.predict(X_test)
-
-print("\nLogistic Regression Classification Report:")
+# Apply models , Logistic Regression, Random Forest, XgBoost 
+lr_model = LogisticRegression(max_iter=300, multi_class='multinomial', random_state=42)
+lr_model.fit(X_train, y_train)
+y_pred_lr = lr_model.predict(X_test)
+print("Logistic Regression Report:")
 print(classification_report(y_test, y_pred_lr))
-print("Accuracy Score:", accuracy_score(y_test, y_pred_lr))
+print("Accuracy:", accuracy_score(y_test, y_pred_lr))
+y_pred_lr = lr_model.predict(X_train)
+print("Training Accuracy Score:", accuracy_score(y_train, y_pred_lr))
 
-# Random Forest Classifier
-clf_rf = RandomForestClassifier(n_estimators=150, max_depth=12, random_state=42)
-clf_rf.fit(X_train, y_train)
-y_pred_rf = clf_rf.predict(X_test)
-
-print("\nRandom Forest Classification Report:")
+rf_model = RandomForestClassifier(n_estimators=150, max_depth=12, random_state=42)
+rf_model.fit(X_train, y_train)
+y_pred_rf = rf_model.predict(X_test)
+print("\n Random Forest Report:")
 print(classification_report(y_test, y_pred_rf))
-print("Accuracy Score:", accuracy_score(y_test, y_pred_rf))
+print("Accuracy:", accuracy_score(y_test, y_pred_rf))
+y_pred_rf = rf_model.predict(X_train)
+print("Training Accuracy Score:", accuracy_score(y_train, y_pred_rf))
 
-# XGBoost Classifier
-clf_xgb = XGBClassifier(use_label_encoder=False, eval_metric='logloss', random_state=42)
-clf_xgb.fit(X_train, y_train)
-y_pred_xgb = clf_xgb.predict(X_test)
-
-print("\nXGBoost Classification Report:")
+xgb_model = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss', random_state=42)
+xgb_model.fit(X_train, y_train)
+y_pred_xgb = xgb_model.predict(X_test)
+print("\n XGBoost Report:")
 print(classification_report(y_test, y_pred_xgb))
-print("Accuracy Score:", accuracy_score(y_test, y_pred_xgb))
+print("Accuracy:", accuracy_score(y_test, y_pred_xgb))
+y_pred_xgb = xgb_model.predict(X_train)
+print("Training Accuracy Score:", accuracy_score(y_train, y_pred_xgb))
 
-<img width="666" height="418" alt="Random_Forest_accuracy" src="https://github.com/user-attachments/assets/1ee23841-1412-4378-b810-51a766274dab" />
-<img width="765" height="543" alt="XGboost_accuracy" src="https://github.com/user-attachments/assets/8efd3aca-fcd0-4220-b9c9-956a62add1a3" />
-<img width="583" height="442" alt="Logistic_Regression_accuracy" src="https://github.com/user-attachments/assets/2c78b3e5-c37c-4cee-b8a9-d719b93791d2" />
+# Here are some snapshots of the output of ML models
+
+<img width="817" height="603" alt="Logistic Regression" src="https://github.com/user-attachments/assets/5087ac24-2c1b-4e65-9d5c-49cbc6a8ca00" />
+<img width="977" height="622" alt="Random Forest" src="https://github.com/user-attachments/assets/43ddbaba-e29c-45d8-97fb-b23e33664888" />
+<img width="977" height="762" alt="XgBoost " src="https://github.com/user-attachments/assets/6bc10d93-b7c4-492a-80dd-6c54c963eeaf" />
